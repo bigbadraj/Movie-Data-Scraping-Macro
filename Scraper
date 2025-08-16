@@ -1,0 +1,659 @@
+' This code is probably super unoptimized and ugly, but it does (mostly) work. I don't really know VBA, so this was just what
+' myself and ChatGPT could cobble together after many hours of trial and error.
+' Known Issues: Release Date sometimes messes up, especially if there's only 1 release date and parentheticals
+'               Parentheticals still messing up some crew positions.
+'               Production companies with parentheticals listed will sometimes result in an extra space and comma being outputted
+
+
+Sub ScrapeWikipediaData()
+    Dim rng As Range
+    Dim cell As Range
+    Dim ie As Object
+    Dim title As String
+    Dim director As String
+    Dim writer As String
+    Dim producer As String
+    Dim cinematographer As String
+    Dim editedBy As String
+    Dim musicBy As String
+    Dim distributedByRow As Object
+    Dim budget As String
+    Dim boxOffice As String
+    Dim runtime As String
+    Dim html As Object
+    Dim tableRows As Object
+    Dim tableRow As Object
+    Dim tableHeader As Object
+    Dim tableData As Object
+    Dim listItem As Object
+    Dim country As String
+    Dim productionCompanies As String
+    
+    Set ie = CreateObject("InternetExplorer.Application")
+    ie.Visible = False
+    
+    Set rng = ThisWorkbook.Sheets("Main Movie Sheet").Range("A2:A" & ThisWorkbook.Sheets("Main Movie Sheet").Cells(Rows.Count, "A").End(xlUp).Row)
+    
+    On Error Resume Next
+    
+    For Each cell In rng
+        Dim starringActors As String
+        starringActors = ""
+        director = ""
+        writer = ""
+        producer = ""
+        editedBy = ""
+        
+        If cell.value <> "" And Left(cell.value, Len("https://en.wikipedia.org/wiki/")) = "https://en.wikipedia.org/wiki/" Then
+            ie.Navigate cell.value
+            Do While ie.Busy Or ie.ReadyState <> 4
+                DoEvents
+            Loop
+            
+            title = ie.document.title
+            title = Replace(title, " - Wikipedia", "")
+            title = RemoveContentInBrackets(title)
+            
+            Set html = ie.document.Body
+            Set tableRows = html.getElementsByTagName("table")
+            
+            For Each tableRow In tableRows
+                If tableRow.className = "infobox vevent" Then
+                    For Each tableHeader In tableRow.getElementsByTagName("th")
+                        If tableHeader.innerText = "Directed by" Then
+                            Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                            If Not tableData Is Nothing Then
+                                If tableData.getElementsByTagName("li").Length > 0 Then
+                                    For Each listItem In tableData.getElementsByTagName("li")
+                                        director = director & listItem.innerText & ", "
+                                    Next listItem
+                                    director = Left(director, Len(director) - 2)
+                                Else
+                                    director = tableData.innerText
+                                End If
+                            Else
+                                director = "Not found"
+                            End If
+                        ElseIf tableHeader.innerText = "Written by" Or tableHeader.innerText = "Screenplay by" Then
+                            Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                            If Not tableData Is Nothing Then
+                                If tableData.getElementsByTagName("li").Length > 0 Then
+                                    For Each listItem In tableData.getElementsByTagName("li")
+                                        writer = writer & listItem.innerText & ", "
+                                    Next listItem
+                                    writer = Left(writer, Len(writer) - 2)
+                                Else
+                                    writer = tableData.innerText
+                                End If
+                            Else
+                                writer = "Not found"
+                            End If
+                        ElseIf tableHeader.innerText = "Produced by" Then
+                            Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                            If Not tableData Is Nothing Then
+                                If tableData.getElementsByTagName("li").Length > 0 Then
+                                    For Each listItem In tableData.getElementsByTagName("li")
+                                        producer = producer & listItem.innerText & ", "
+                                    Next listItem
+                                    producer = Left(producer, Len(producer) - 2)
+                                Else
+                                    producer = tableData.innerText
+                                End If
+                            Else
+                                producer = "Not found"
+                            End If
+                        ElseIf tableHeader.innerText = "Budget" Then
+                            Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                            If Not tableData Is Nothing Then
+                                budget = tableData.innerText
+                                budget = RemoveContentInBrackets(budget)
+                                budget = ConvertBudgetToNumeric(budget)
+                            Else
+                                budget = "Not found"
+                            End If
+                        ElseIf tableHeader.innerText = "Box office" Then
+                            Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                            If Not tableData Is Nothing Then
+                                boxOffice = tableData.innerText
+                                boxOffice = RemoveContentInBrackets(boxOffice)
+                                boxOffice = ConvertBudgetToNumeric(boxOffice)
+                            Else
+                                boxOffice = "Not found"
+                            End If
+                        ElseIf tableHeader.innerText = "Running time" Then
+                            Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                            If Not tableData Is Nothing Then
+                                runtime = tableData.innerText
+                                runtime = RemoveTextAfterSpace(runtime)
+                            Else
+                                runtime = "Not found"
+                            End If
+                        
+                        
+                        ElseIf tableHeader.innerText = "Starring" Then
+    Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+    If Not tableData Is Nothing Then
+        Dim actorElements As Object
+        Set actorElements = tableData.getElementsByTagName("li")
+        
+        If actorElements.Length > 0 Then
+            For Each listItem In actorElements
+                starringActors = starringActors & listItem.innerText & ", "
+            Next listItem
+            starringActors = Left(starringActors, Len(starringActors) - 2)
+        Else
+            ' If no <li> tags found, get text directly
+            starringActors = tableData.innerText
+        End If
+    Else
+        starringActors = "Not found"
+    End If
+
+
+                        
+                        ElseIf tableHeader.innerText = "Edited by" Then
+                            Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                            If Not tableData Is Nothing Then
+                                If tableData.getElementsByTagName("li").Length > 0 Then
+                                    For Each listItem In tableData.getElementsByTagName("li")
+                                        editedBy = editedBy & listItem.innerText & ", "
+                                    Next listItem
+                                    editedBy = Left(editedBy, Len(editedBy) - 2)
+                                Else
+                                    editedBy = tableData.innerText
+                                End If
+                            Else
+                                editedBy = "Not found"
+                            End If
+                        End If
+                    Next tableHeader
+                    
+
+
+' Loop through all table rows to find "Music by" section
+For Each musicRow In tableRows
+    For Each tableHeader In musicRow.getElementsByTagName("th")
+        If tableHeader.innerText = "Music by" Then
+            ' Find the corresponding td element
+            Set tableData = tableHeader.ParentNode.querySelector("td.infobox-data")
+            If Not tableData Is Nothing Then
+                musicBy = tableData.innerText ' Get the inner text of the table data
+                musicBy = RemoveContentInBrackets(musicBy)
+            End If
+            Exit For ' Exit loop once "Music by" section is found
+        End If
+    Next tableHeader
+    If musicBy <> "" Then Exit For ' Exit loop if musicBy is found
+Next musicRow
+
+
+
+Dim cinematographyRow As Object
+
+' Loop through all table rows to find "Cinematography" section
+For Each cinematographyRow In tableRows
+    For Each tableHeader In cinematographyRow.getElementsByTagName("th")
+        If tableHeader.innerText = "Cinematography" Then
+            ' Find the corresponding td element
+            Set tableData = tableHeader.ParentNode.querySelector("td.infobox-data")
+            If Not tableData Is Nothing Then
+                cinematographer = tableData.innerText ' Get the inner text of the table data
+            End If
+            Exit For ' Exit loop once "Cinematography" section is found
+        End If
+    Next tableHeader
+    If cinematographer <> "" Then Exit For ' Exit loop if cinematographer is found
+Next cinematographyRow
+
+
+Dim distributedBy As String
+
+For Each distributedByRow In tableRows
+    For Each tableHeader In distributedByRow.getElementsByTagName("th")
+        If tableHeader.innerText = "Distributed by" Then
+            ' Find the corresponding td element
+            Set tableData = tableHeader.ParentNode.querySelector("td.infobox-data")
+            If Not tableData Is Nothing Then
+                distributedBy = tableData.innerText ' Get the inner text of the table data
+                distributedBy = RemoveContentInBrackets(distributedBy)
+            End If
+            Exit For ' Exit loop once "Distributed by" section is found
+        End If
+    Next tableHeader
+    If distributedBy <> "" Then Exit For ' Exit loop if distributedBy is found
+Next distributedByRow
+
+' Loop through all table rows to find "Country" or "Countries" section
+For Each countryRow In tableRows
+    For Each tableHeader In countryRow.getElementsByTagName("th")
+        If tableHeader.innerText = "Country" Or tableHeader.innerText = "Countries" Then
+            ' Find the corresponding td element
+            Set tableData = tableHeader.ParentNode.querySelector("td.infobox-data")
+            If Not tableData Is Nothing Then
+                country = tableData.innerText ' Get the inner text of the table data
+                country = ProcessTextData(country) ' Process the text data
+                Exit For ' Exit loop once "Country" or "Countries" section is found
+            End If
+        End If
+    Next tableHeader
+    If country <> "" Then Exit For ' Exit loop if country is found
+Next countryRow
+
+
+' Loop through all table rows to find "Production Company/Companies" section
+For Each currentRow In tableRows
+    For Each tableHeader In currentRow.getElementsByTagName("th")
+        ' Check if the header contains the text "Production"
+        If InStr(1, tableHeader.innerText, "Production", vbTextCompare) > 0 Then
+            ' Find the corresponding td element
+            Set tableData = tableHeader.ParentNode.querySelector("td.infobox-data")
+            If Not tableData Is Nothing Then
+                ' Extract the text content directly
+                productionCompanies = tableData.innerText
+                
+                ' Remove any comma within the production company names
+                productionCompanies = Replace(productionCompanies, ", ", " ")
+                
+                ' Remove parentheses and square brackets along with their contents
+                Do
+                    startPos = InStr(productionCompanies, "[")
+                    endPos = InStr(productionCompanies, "]")
+                    If startPos > 0 And endPos > startPos Then
+                        productionCompanies = Left(productionCompanies, startPos - 1) & Mid(productionCompanies, endPos + 1)
+                    End If
+                Loop While startPos > 0 And endPos > startPos
+                
+                Do
+                    startPos = InStr(productionCompanies, "(")
+                    endPos = InStr(productionCompanies, ")")
+                    If startPos > 0 And endPos > startPos Then
+                        productionCompanies = Left(productionCompanies, startPos - 1) & Mid(productionCompanies, endPos + 1)
+                    End If
+                Loop While startPos > 0 And endPos > startPos
+                
+                ' Remove leading and trailing spaces
+                productionCompanies = Trim(productionCompanies)
+                
+                ' Split production companies based on newline character
+                Dim companiesArray() As String
+                companiesArray = Split(productionCompanies, vbCrLf)
+                
+                ' Concatenate production companies with commas, removing any leading spaces
+                Dim concatenatedCompanies As String
+                concatenatedCompanies = ""
+                For i = LBound(companiesArray) To UBound(companiesArray)
+                    ' Trim each company name to remove leading and trailing spaces
+                    companiesArray(i) = Trim(companiesArray(i))
+                    If companiesArray(i) <> "" Then
+                        If concatenatedCompanies = "" Then
+                            concatenatedCompanies = companiesArray(i)
+                        Else
+                            concatenatedCompanies = concatenatedCompanies & ", " & companiesArray(i)
+                        End If
+                    End If
+                Next i
+                
+                ' Output production companies data to column L
+                cell.Offset(0, 11).value = concatenatedCompanies
+                
+                ' Debugging print statement to check the value in column L
+                Debug.Print "Value in Column L: " & cell.Offset(0, 11).value
+                
+                Exit For ' Exit loop once production company information is found
+            End If
+        End If
+    Next tableHeader
+Next currentRow
+
+
+                      ' Check for cases where the producer information might be structured differently
+                    If producer = "" Then
+                        Dim altTableRow As Object ' Declare a new variable for the inner loop
+                        For Each altTableRow In tableRows
+                            For Each tableHeader In altTableRow.getElementsByTagName("th")
+                                If tableHeader.innerText = "Produced by" Then
+                                    ' Find the corresponding td element
+                                    Set tableData = tableHeader.ParentNode.querySelector("td")
+                                    If Not tableData Is Nothing Then
+                                        producer = tableData.innerText
+                                        Exit For
+                                    End If
+                                End If
+                            Next tableHeader
+                        Next altTableRow
+                    End If
+                    
+                    ' Check for cases where the director information might be structured differently
+                    If director = "" Then
+                        For Each tableHeader In tableRow.getElementsByTagName("th")
+                            If tableHeader.innerText = "Directed by" Then
+                                Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                                If Not tableData Is Nothing Then
+                                    If tableData.getElementsByTagName("li").Length > 0 Then
+                                        For Each listItem In tableData.getElementsByTagName("li")
+                                            director = director & listItem.innerText & ", "
+                                        Next listItem
+                                        director = Left(director, Len(director) - 2) ' Remove trailing comma and space
+                                    Else
+                                        director = tableData.innerText ' If no <li> elements found, directly use the inner text
+                                    End If
+                                Else
+                                    director = "Not found"
+                                End If
+                            End If
+                        Next tableHeader
+                    End If
+                    
+                    ' Check for cases where the writer information might be structured differently
+                    If writer = "" Then
+                        For Each tableHeader In tableRow.getElementsByTagName("th")
+                            If tableHeader.innerText = "Written by" Or tableHeader.innerText = "Screenplay by" Then
+                                Set tableData = tableHeader.ParentNode.getElementsByTagName("td")(0)
+                                If Not tableData Is Nothing Then
+                                    If tableData.getElementsByTagName("li").Length > 0 Then
+                                        For Each listItem In tableData.getElementsByTagName("li")
+                                            writer = writer & listItem.innerText & ", "
+                                        Next listItem
+                                        writer = Left(writer, Len(writer) - 2) ' Remove trailing comma and space
+                                    Else
+                                        writer = tableData.innerText ' If no <li> elements found, directly use the inner text
+                                    End If
+                                Else
+                                    writer = "Not found"
+                                End If
+                            End If
+                        Next tableHeader
+                    End If
+                                 
+
+' Loop through all table rows
+For Each zxy987 In tableRows
+    Dim releaseDate As Variant
+    Dim datePart As String
+    Dim releaseDatesSection As Boolean
+    Dim releaseDateContent As Object
+    Dim newReleaseDate As String
+
+    releaseDatesSection = False
+    releaseDate = "" ' Reset releaseDate variable
+
+    ' Loop through table headers to find "Release dates" section
+    For Each tableHeader In zxy987.getElementsByTagName("th")
+        If InStr(1, tableHeader.innerText, "Release dates", vbTextCompare) > 0 Then
+            releaseDatesSection = True
+            Exit For
+        End If
+    Next tableHeader
+
+    If releaseDatesSection Then
+        ' Loop through table data to find release dates
+        For Each tableData In zxy987.getElementsByTagName("td")
+            ' Loop through list items to find release date associated with United States
+            For Each listItem In tableData.getElementsByTagName("li")
+                If InStr(1, listItem.innerText, "(United States)", vbTextCompare) > 0 Then
+                    ' Extract date part
+                    datePart = Trim(Mid(listItem.innerText, InStr(1, listItem.innerText, "(") + 1, InStr(1, listItem.innerText, ")") - InStr(1, listItem.innerText, "(") - 1))
+                    ' Convert to date format
+                    releaseDate = CDate(datePart)
+                    Exit For ' Exit loop once release date is found
+                End If
+            Next listItem
+            If IsDate(releaseDate) Then Exit For ' Exit loop if release date is found
+        Next tableData
+
+        ' If release date is still empty, it means there are no USA release dates
+        ' In this case, set releaseDate to "Foreign Film"
+        If Not IsDate(releaseDate) Then
+            releaseDate = "Foreign Film"
+        End If
+
+        ' Output release date or "Foreign Film" into column O
+        cell.Offset(0, 14).value = releaseDate
+
+    Else
+        ' Check if the "Release date" section is found in the Wikipedia table
+        Dim isReleaseDateFound As Boolean
+        isReleaseDateFound = False
+
+        For Each headerElement In zxy987.getElementsByTagName("th")
+            If InStr(1, headerElement.innerText, "Release date", vbTextCompare) > 0 Then
+                isReleaseDateFound = True
+                Exit For
+            End If
+        Next headerElement
+
+        If isReleaseDateFound Then
+            ' Attempt to find the release date content by navigating through sibling elements
+            Dim releaseDateContentElement As Object
+            Dim currentElement As Object
+            Set currentElement = headerElement.NextSibling
+            
+            Do While Not currentElement Is Nothing
+                If currentElement.className = "infobox-data" Then
+                    Set releaseDateContentElement = currentElement
+                    Exit Do
+                End If
+                Set currentElement = currentElement.NextSibling
+            Loop
+
+            ' Check if the release date content is found
+If Not releaseDateContentElement Is Nothing Then
+    ' Get the inner text of the HTML content
+    Dim extractedReleaseDate As String
+    extractedReleaseDate = releaseDateContentElement.innerText
+
+    ' Find the starting position of parentheses
+    Dim parenStartPos As Long
+    parenStartPos = InStr(extractedReleaseDate, "(")
+
+    ' Find the ending position of parentheses
+    Dim parenEndPos As Long
+    parenEndPos = InStr(extractedReleaseDate, ")")
+
+    ' Check if both starting and ending positions of parentheses are found
+    If parenStartPos > 0 And parenEndPos > 0 Then
+        ' Remove the content within parentheses
+        extractedReleaseDate = Left(extractedReleaseDate, parenStartPos - 1) & Mid(extractedReleaseDate, parenEndPos + 1)
+    End If
+
+    ' Find the starting position of square brackets
+    Dim bracketStartPos As Long
+    bracketStartPos = InStr(extractedReleaseDate, "[")
+
+    ' Find the ending position of square brackets
+    Dim bracketEndPos As Long
+    bracketEndPos = InStr(extractedReleaseDate, "]")
+
+    ' Check if both starting and ending positions of square brackets are found
+    If bracketStartPos > 0 And bracketEndPos > 0 Then
+        ' Remove the content within square brackets
+        extractedReleaseDate = Left(extractedReleaseDate, bracketStartPos - 1) & Mid(extractedReleaseDate, bracketEndPos + 1)
+    End If
+
+    ' Remove any extra spaces and line breaks
+    extractedReleaseDate = Trim(extractedReleaseDate)
+    extractedReleaseDate = Replace(extractedReleaseDate, Chr(160), "") ' Remove non-breaking spaces
+
+    ' Output release date
+    cell.Offset(0, 14).value = extractedReleaseDate
+
+    ' Debug print statement to output the release date value
+    Debug.Print "Extracted Release Date: " & extractedReleaseDate
+Else
+    ' If the release date section is not found, output "Not found"
+    cell.Offset(0, 14).value = "Not found"
+
+    ' Debug print statement to indicate that release date section was not found
+    Debug.Print "Release Date Section Not Found"
+End If
+
+        End If
+    End If
+Next zxy987
+
+
+
+
+' Process data for each column
+producer = ProcessTextData(producer)
+writer = ProcessTextData(writer)
+director = ProcessTextData(director)
+starringActors = ProcessTextData(starringActors)
+musicBy = ProcessTextData(musicBy)
+cinematographer = ProcessTextData(cinematographer)
+distributedBy = ProcessTextData(distributedBy)
+country = ProcessTextData(country)
+productionCompanies = ProcessTextData(productionCompanies)
+
+
+        ' Remove commas from columns containing comma-separated values
+        cell.Offset(0, 3).value = RemoveCommas(cell.Offset(0, 3).value) ' Director
+        cell.Offset(0, 4).value = RemoveCommas(cell.Offset(0, 4).value) ' Writer
+        cell.Offset(0, 5).value = RemoveCommas(cell.Offset(0, 5).value) ' Producer
+        cell.Offset(0, 7).value = RemoveCommas(cell.Offset(0, 7).value) ' Starring Actors
+        cell.Offset(0, 8).value = RemoveCommas(cell.Offset(0, 8).value) ' Cinematographer
+        cell.Offset(0, 10).value = RemoveCommas(cell.Offset(0, 10).value) ' Music By
+        ' cell.Offset(0, 11).value = RemoveCommas(cell.Offset(0, 11).value) ' Production Company
+        cell.Offset(0, 12).value = RemoveCommas(cell.Offset(0, 12).value) ' Distributed By
+        cell.Offset(0, 13).value = RemoveCommas(cell.Offset(0, 13).value) ' Country
+
+
+
+' Remove bracket content for director, producer, writer, and starringActors
+director = RemoveContentInBrackets(director)
+producer = RemoveContentInBrackets(producer)
+writer = RemoveContentInBrackets(writer)
+starringActors = RemoveContentInBrackets(starringActors)
+country = RemoveContentInBrackets(country)
+productionCompanies = RemoveContentInBrackets(productionCompanies)
+
+
+
+
+                    Exit For ' Exit the loop once the infobox is processed
+                End If
+            Next tableRow
+            
+            cell.value = title
+            ' Remove hyperlink formatting
+            cell.Parent.Hyperlinks.Delete
+            cell.Offset(0, 3).value = director
+            cell.Offset(0, 4).value = writer
+            cell.Offset(0, 5).value = producer
+            cell.Offset(0, 7).value = starringActors ' Output the starring actors into column H
+            cell.Offset(0, 8).value = cinematographer
+            cell.Offset(0, 9).value = editedBy
+            cell.Offset(0, 10).value = musicBy ' Output the music by information into column L
+            ' cell.Offset(0, 11).value = productionCompanies
+            cell.Offset(0, 12).value = distributedBy
+            cell.Offset(0, 13).value = country
+            cell.Offset(0, 15).value = runtime ' Output the runtime information into column K
+            cell.Offset(0, 16).value = budget ' Output the budget information into column L
+            cell.Offset(0, 17).value = boxOffice ' Output the box office information into column M
+            
+        End If
+    Next cell
+    
+    ie.Quit
+    Set ie = Nothing
+    Set html = Nothing
+    
+    On Error GoTo 0
+End Sub
+
+Function RemoveContentInBrackets(inputString As String) As String
+    Dim regex As Object
+    Set regex = CreateObject("VBScript.RegExp")
+    With regex
+        .Global = True
+        .IgnoreCase = True
+        .MultiLine = True
+        .Pattern = "[\[\(][^\]\)]*[\]\)]" ' Matches anything within parentheses or square brackets
+        RemoveContentInBrackets = .Replace(inputString, "")
+    End With
+End Function
+
+Function RemoveTextAfterSpace(inputString As String) As String
+    Dim spacePosition As Integer
+    spacePosition = InStr(inputString, " ")
+    If spacePosition > 0 Then
+        RemoveTextAfterSpace = Left(inputString, spacePosition - 1)
+    Else
+        RemoveTextAfterSpace = inputString
+    End If
+End Function
+
+Function ConvertBudgetToNumeric(budget As String) As String
+    On Error GoTo ErrorHandler
+    
+    Dim value As String
+    Dim multiplier As Double
+    Dim regex As Object
+    Dim matches As Object
+    
+    ' Initialize regular expression object
+    Set regex = CreateObject("VBScript.RegExp")
+    regex.IgnoreCase = True
+    regex.Global = True
+    
+    ' Remove non-numeric characters from the budget string
+    budget = Replace(budget, ",", "") ' Remove commas
+    budget = Replace(budget, "$", "") ' Remove dollar sign
+    
+    ' Search for numerical value in the budget string using regular expression
+    regex.Pattern = "(\d+(\.\d+)?)"
+    Set matches = regex.Execute(budget)
+    
+    ' Extract numerical value from the first match
+    If matches.Count > 0 Then
+        value = matches(0)
+    Else
+        ' If no numerical value found, return empty string
+        ConvertBudgetToNumeric = ""
+        Exit Function
+    End If
+    
+    ' Check for presence of "million" or "billion" in the budget string
+    If InStr(1, budget, "million", vbTextCompare) > 0 Then
+        multiplier = 1000000
+    ElseIf InStr(1, budget, "billion", vbTextCompare) > 0 Then
+        multiplier = 1000000000
+    Else
+        ' If no specific unit mentioned, return the value as is
+        multiplier = 1
+    End If
+    
+    ' Perform multiplication using string manipulation
+    value = CStr(CDbl(value) * multiplier)
+    
+    ' Format the value with commas as necessary
+    ConvertBudgetToNumeric = FormatNumber(value, 0)
+    
+    Exit Function
+    
+ErrorHandler:
+    ' Handle errors
+    MsgBox "Error occurred: " & Err.Description
+    ConvertBudgetToNumeric = ""
+End Function
+
+' Function to process text data in columns (producer, writer, director, starring)
+Function ProcessTextData(textData As String) As String
+    Dim dataArray() As String
+    Dim i As Integer
+    
+    ' Split the string by paragraph break
+    dataArray = Split(textData, vbCrLf)
+    
+    ' Loop through the array and trim each element
+    For i = LBound(dataArray) To UBound(dataArray)
+        dataArray(i) = Trim(dataArray(i))
+    Next i
+    
+    ' Join the array elements with commas
+    ProcessTextData = Join(dataArray, ", ")
+End Function
+
+Function RemoveCommas(inputString As String) As String
+    RemoveCommas = Replace(inputString, ",", "")
+End Function
